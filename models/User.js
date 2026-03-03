@@ -7,7 +7,7 @@ const UserSchema = new mongoose.Schema({
         type: String,
         required: [true, 'Please add a name']
     },
-    telephone: { // 🟢 เพิ่มฟิลด์ telephone ตาม Requirement ข้อ 1
+    telephone: {
         type: String,
         required: [true, 'Please add a telephone number']
     },
@@ -41,15 +41,7 @@ const UserSchema = new mongoose.Schema({
 
 // Encrypt password using bcrypt
 UserSchema.pre('save', async function(next) {
-    // 🟢 เพิ่มตัวเช็ค: ถ้าไม่ได้มีการแก้ไขรหัสผ่าน ให้ข้ามการเข้ารหัสไปเลย ป้องกันบั๊กเวลาอัปเดตข้อมูลอื่น
-    if (!this.isModified('password')) {
-        next();
-    }
-    
-    // สร้าง Salt (ข้อความสุ่มที่เอามาผสมกับรหัสผ่านให้เดายากขึ้น) ความยาวระดับ 10
     const salt = await bcrypt.genSalt(10);
-    
-    // ทำการเข้ารหัสผ่านเดิม ผสมกับ Salt แล้วเซฟทับลงไปในฟิลด์ password
     this.password = await bcrypt.hash(this.password, salt);
 });
 
@@ -66,3 +58,4 @@ UserSchema.methods.matchPassword = async function(enteredPassword) {
 }
 
 module.exports = mongoose.model('User', UserSchema);
+

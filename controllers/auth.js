@@ -1,4 +1,3 @@
-// controllers/auth.js
 const User = require('../models/User');
 
 //@desc     Register user
@@ -111,12 +110,13 @@ exports.getMe = async (req, res, next) => {
     });
 };
 exports.logout=async(req,res,next)=>{
-res.cookie('token','none',{
-expires: new Date(Date.now()+ 10*1000),
-httpOnly:true
-});
-res.status(200).json({
-success:true,
-data:{}
-});
+    res.cookie('token','none',{
+        expires: new Date(Date.now()+ 10*1000),
+        httpOnly:true
+    });
+
+    res.status(200).json({
+      success:true,
+      data:{}
+    });
 };

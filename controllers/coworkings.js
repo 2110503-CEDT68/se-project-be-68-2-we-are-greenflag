@@ -5,13 +5,18 @@ const Coworking = require('../models/Coworking');
 //@access   Public
 exports.getCoworkings = async (req, res, next) => {
     try {
-        const coworkings = await Coworking.find().populate('reservations');
-        res.status(200).json({ success: true, count: coworkings.length, data: coworkings });
+        // ลองดึงแบบคลีนๆ เพื่อเช็คว่าต่อ DB ติดจริงไหม
+        const coworkings = await Coworking.find(); 
+        
+        res.status(200).json({
+            success: true, 
+            count: coworkings.length, 
+            data: coworkings
+        });
     } catch (err) {
-        res.status(400).json({ success: false, message: err.message });
+        res.status(400).json({ success: false });
     }
 };
-
 //@desc     Get single coworking space
 //@route    GET /api/v1/coworkings/:id
 //@access   Public
@@ -19,7 +24,7 @@ exports.getCoworking = async (req, res, next) => {
     try {
         const coworking = await Coworking.findById(req.params.id).populate('reservations');
         if (!coworking) {
-            return res.status(404).json({ success: false, message: 'Coworking space not found' });
+            return res.status(400).json({ success: false, message: 'Coworking space not found' });
         }
         res.status(200).json({ success: true, data: coworking });
     } catch (err) {
@@ -31,12 +36,8 @@ exports.getCoworking = async (req, res, next) => {
 //@route    POST /api/v1/coworkings
 //@access   Private (Admin)
 exports.createCoworking = async (req, res, next) => {
-    try {
-        const coworking = await Coworking.create(req.body);
-        res.status(201).json({ success: true, data: coworking });
-    } catch (err) {
-        res.status(400).json({ success: false, message: err.message });
-    }
+    const coworking = await Coworking.create(req.body);
+    res.status(201).json({ success: true, data: coworking });
 };
 
 //@desc     Update coworking space
@@ -49,7 +50,7 @@ exports.updateCoworking = async (req, res, next) => {
             runValidators: true
         });
         if (!coworking) {
-            return res.status(404).json({ success: false, message: 'Coworking space not found' });
+            return res.status(400).json({ success: false, message: 'Coworking space not found' });
         }
         res.status(200).json({ success: true, data: coworking });
     } catch (err) {
@@ -63,14 +64,20 @@ exports.updateCoworking = async (req, res, next) => {
 exports.deleteCoworking = async (req, res, next) => {
     try {
         const coworking = await Coworking.findById(req.params.id);
+        
         if (!coworking) {
             return res.status(404).json({ success: false, message: 'Coworking space not found' });
         }
-        
-        // ใช้ deleteOne() เพื่อให้ไปกระตุ้น Cascade delete ใน Model ที่เราเพิ่งเขียนไป
-        await coworking.deleteOne();
+        const Reservation = require('../models/Reservation'); 
+        await Reservation.deleteMany({ coworking: req.params.id });
+
+        await coworking.deleteOne(); 
+
         res.status(200).json({ success: true, data: {} });
     } catch (err) {
-        res.status(400).json({ success: false, message: err.message });
+        res.status(400).json({ 
+            success: false, 
+            message: err.message 
+        });
     }
 };
