@@ -30,7 +30,7 @@ app.use(hpp());
 
 // --- [ อัปเดต CORS ให้รองรับ Frontend ] ---
 app.use(cors({
-    origin: ['http://localhost:3000', 'https://fe-project-nu.vercel.app','https://august-pen-gay.vercel.app'], 
+    origin: ['http://localhost:3000', 'https://fe-project-nu.vercel.app','https://august-pen-gay.vercel.app','https://se-co1.vercel.app/login'], 
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], // เพิ่ม OPTIONS เผื่อไว้สำหรับ Preflight request
     credentials: true 
 }));
