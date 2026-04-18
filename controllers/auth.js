@@ -120,3 +120,22 @@ exports.logout=async(req,res,next)=>{
       data:{}
     });
 };
+
+//@desc     Get all users (For Admin Dashboard)
+//@route    GET /api/v1/auth/users
+//@access   Private/Admin
+exports.getUsers = async (req, res, next) => {
+  try {
+    // ดึงข้อมูลเฉพาะคนที่เป็น 'user' ธรรมดา (ไม่นับ admin) 
+    const users = await User.find({ role: 'user' }).select('name email role telephone createdAt');
+
+    res.status(200).json({
+      success: true,
+      count: users.length,
+      data: users
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};

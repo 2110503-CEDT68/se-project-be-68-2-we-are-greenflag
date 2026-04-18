@@ -1,6 +1,7 @@
 // controllers/reservations.js
 const Reservation = require('../models/Reservation');
 const Coworking = require('../models/Coworking');
+const User = require('../models/User');
 
 //@desc    Get all reservations
 //@route   GET /api/v1/reservations
@@ -269,5 +270,135 @@ exports.deleteAllReservations = async (req, res, next) => {
       success: false,
       message: "Failed to delete reservations"
     });
+  }
+};
+
+//@desc     Get Dashboard Statistics for Admin
+//@route    GET /api/v1/reservations/dashboard/stats
+//@access   Private/Admin
+exports.getDashboardStats = async (req, res, next) => {
+  try {
+    // 🟢 รับค่า ปี จาก Frontend (ถ้าไม่ส่งมาจะใช้ปีปัจจุบัน)
+    const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+
+    // 1. หาจำนวนสมาชิกทั้งหมด
+    const membersCount = await User.countDocuments({ role: 'user' });
+
+    // 2. หาจำนวนการจองของ "วันนี้"
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date();
+    endOfDay.setHours(23, 59, 59, 999);
+
+    // 🟢 ดึงข้อมูลการจองทั้งหมดที่มีคิวในวันนี้
+    const reservationsToday = await Reservation.find({
+      date: { $gte: startOfDay, $lte: endOfDay }
+    });
+    const bookingsTodayCount = reservationsToday.length; // จำนวน transaction การจองวันนี้
+
+    // 🟢 คำนวณหาจำนวน "พื้นที่ (โต๊ะ/ห้อง)" ที่โดนจองไปแล้วในวันนี้ (นับแบบไม่ซ้ำกัน)
+    const bookedUnits = new Set(reservationsToday.map(r => `${r.coworking}_${r.desk}`));
+    const bookedUnitsTodayCount = bookedUnits.size; 
+
+    // 3. ดึงข้อมูลการจองทั้งหมดเพื่อคำนวณรายได้รวม และรายได้แยกรายเดือน
+    const allReservations = await Reservation.find().populate('coworking');
+    let totalRevenue = 0;
+
+    const monthlyRevenueMap = {
+      0: { name: 'JAN', total: 0 }, 1: { name: 'FEB', total: 0 }, 2: { name: 'MAR', total: 0 },
+      3: { name: 'APR', total: 0 }, 4: { name: 'MAY', total: 0 }, 5: { name: 'JUN', total: 0 },
+      6: { name: 'JUL', total: 0 }, 7: { name: 'AUG', total: 0 }, 8: { name: 'SEP', total: 0 },
+      9: { name: 'OCT', total: 0 }, 10: { name: 'NOV', total: 0 }, 11: { name: 'DEC', total: 0 }
+    };
+
+    allReservations.forEach(r => {
+      if (r.coworking && r.coworking.price_per_hour && r.startTime && r.endTime) {
+        const [startH, startM] = r.startTime.split(':').map(Number);
+        const [endH, endM] = r.endTime.split(':').map(Number);
+        
+        let hours = (endH + (endM / 60)) - (startH + (startM / 60));
+        if (hours < 0) hours += 24;
+        
+        if (hours > 0) {
+          const amount = (hours * r.coworking.price_per_hour);
+          totalRevenue += amount;
+
+          const rDate = r.date ? new Date(r.date) : new Date(r.createdAt);
+          if (rDate.getFullYear() === year) {
+            monthlyRevenueMap[rDate.getMonth()].total += amount;
+          }
+        }
+      }
+    });
+
+    const monthlyRevenue = Object.values(monthlyRevenueMap);
+
+    // 🟢 4. อัตราการเข้าใช้งาน (Occupancy) แบบรายวัน
+    const Coworking = require('../models/Coworking'); // ให้ชัวร์ว่ามีการเรียกใช้ Model
+    const allSpaces = await Coworking.find();
+    
+    // เอา capacity ของทุกสาขามาบวกกัน
+    const totalCapacity = allSpaces.reduce((sum, space) => sum + (space.capacity || 0), 0);
+
+    let occupancy = 0;
+    if (totalCapacity > 0) {
+      occupancy = Math.min(Math.round((bookedUnitsTodayCount / totalCapacity) * 100), 100);
+    }
+
+    // 5. ดึงรายการธุรกรรมล่าสุด 5 รายการ
+    const recentReservations = await Reservation.find()
+      .sort({ createdAt: -1 })
+      // .limit(5)
+      .populate('user', 'name email')
+      // 🟢 ดึง name ของ coworking มาด้วยเพื่อให้ฟอร์มแก้ไขโชว์ชื่อได้
+      .populate('coworking', 'name price_per_hour'); 
+
+    const recentTransactions = recentReservations.map(r => {
+      let amount = 0;
+      if (r.coworking && r.coworking.price_per_hour && r.startTime && r.endTime) {
+        const [startH, startM] = r.startTime.split(':').map(Number);
+        const [endH, endM] = r.endTime.split(':').map(Number);
+        let hours = (endH + (endM / 60)) - (startH + (startM / 60));
+        if (hours < 0) hours += 24;
+        if (hours > 0) amount = hours * r.coworking.price_per_hour;
+      }
+
+      const displayDate = r.date ? new Date(r.date) : new Date(r.createdAt);
+
+      return {
+        id: r._id,
+        user: r.user ? r.user.name : 'Unknown User',
+        email: r.user ? r.user.email : 'N/A',
+        amount: `฿${amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
+        time: displayDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+        status: 'Completed',
+        statusColor: 'bg-emerald-500/10 text-emerald-500',
+        
+        // 🟢 เพิ่มข้อมูลดิบ เอาไว้ให้ปุ่ม Edit ดึงไปแสดงในช่องกรอกข้อมูล
+        rawDate: r.date ? displayDate.toISOString().split('T')[0] : '',
+        startTime: r.startTime || '',
+        endTime: r.endTime || '',
+        desk: r.desk || '',
+        coworkingId: r.coworking ? r.coworking._id : null,
+        coworkingName: r.coworking ? r.coworking.name : ''
+      };
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        revenue: totalRevenue,
+        members: membersCount,
+        bookingsToday: bookingsTodayCount, // จำนวนการจองทั้งหมดวันนี้
+        bookedSpacesToday: bookedUnitsTodayCount, // จำนวนพื้นที่(โต๊ะ) ที่โดนจองแล้ววันนี้
+        occupancy: occupancy, // % อัตราการใช้พื้นที่ของวันนี้
+        recentTransactions: recentTransactions,
+        monthlyRevenue: monthlyRevenue 
+      }
+    });
+
+  } catch (error) {
+    console.error('Dashboard Stats Error:', error);
+    res.status(500).json({ success: false, message: 'Server Error on Dashboard Stats' });
   }
 };

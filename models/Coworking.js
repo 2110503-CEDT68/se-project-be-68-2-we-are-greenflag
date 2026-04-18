@@ -25,8 +25,15 @@ const CoworkingSchema = new mongoose.Schema(
             type: String,
             required: [true, 'Please add a close time (e.g., 20:00)']
         },
-         // ✅ เพิ่ม
+        // ✅ เพิ่มราคาต่อชั่วโมง
         price_per_hour: { type: Number, required: true },
+
+        // 🟢 เพิ่ม capacity (ความจุ/จำนวนที่นั่งทั้งหมด) สำหรับคำนวณ Occupancy
+        capacity: { 
+            type: Number, 
+            required: true,
+            default: 10 // ตั้งค่าเริ่มต้นไว้ที่ 10 เพื่อไม่ให้ข้อมูลเก่าพัง
+        },
 
         // ✅ เพิ่ม rating
         rating: { type: Number, default: 0, min: 0, max: 5 },
