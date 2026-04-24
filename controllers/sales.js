@@ -8,6 +8,23 @@ const mongoose = require('mongoose');
 exports.getSales = async (req, res, next) => {
   try {
     const { year, month, coworking } = req.query;
+    const calculateDurationHours = (startTime, endTime) => {
+      if (!startTime || !endTime) return 0;
+
+      const [startHRaw, startMRaw] = String(startTime).split(':');
+      const [endHRaw, endMRaw] = String(endTime).split(':');
+      const startH = Number(startHRaw);
+      const startM = Number(startMRaw);
+      const endH = Number(endHRaw);
+      const endM = Number(endMRaw);
+
+      // Guard malformed times so they never create negative/invalid revenue.
+      if ([startH, startM, endH, endM].some((v) => Number.isNaN(v))) return 0;
+
+      let durationHours = (endH + (endM / 60)) - (startH + (startM / 60));
+      if (durationHours < 0) durationHours += 24;
+      return durationHours > 0 ? durationHours : 0;
+    };
 
     // Validate year parameter
     if (!year) {
@@ -87,41 +104,21 @@ exports.getSales = async (req, res, next) => {
         },
         {
           $unwind: '$coworkingInfo'
-        },
-        {
-          $addFields: {
-            pricePerHour: '$coworkingInfo.price_per_hour',
-            // Parse hours from time strings (assuming format "HH:MM")
-            startHour: { $toInt: { $substr: ['$startTime', 0, 2] } },
-            endHour: { $toInt: { $substr: ['$endTime', 0, 2] } }
-          }
-        },
-        {
-          $addFields: {
-            durationHours: { $subtract: ['$endHour', '$startHour'] }
-          }
-        },
-        {
-          $addFields: {
-            revenue: {
-              $multiply: ['$pricePerHour', '$durationHours']
-            }
-          }
-        },
-        {
-          $group: {
-            _id: {
-              month: { $month: '$date' }
-            },
-            total: { 
-              $sum: '$revenue' 
-            }
-          }
-        },
-        {
-          $sort: { '_id.month': 1 }
         }
       ]);
+
+      // Calculate revenue in JavaScript to keep logic identical with daily calculation.
+      const monthlyRevenueByMonth = {};
+      monthlySales.forEach(item => {
+        const durationHours = calculateDurationHours(item.startTime, item.endTime);
+        const rawRevenue = (item.coworkingInfo?.price_per_hour || 0) * durationHours;
+        const revenue = Number.isFinite(rawRevenue) && rawRevenue > 0 ? rawRevenue : 0;
+        const month = new Date(item.date).getMonth() + 1;
+        if (!monthlyRevenueByMonth[month]) {
+          monthlyRevenueByMonth[month] = 0;
+        }
+        monthlyRevenueByMonth[month] += revenue;
+      });
 
       // Map month numbers to month names
       const monthNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
@@ -133,10 +130,10 @@ exports.getSales = async (req, res, next) => {
       }));
 
       // Fill in actual data
-      monthlySales.forEach(item => {
-        const monthIndex = item._id.month - 1;
+      Object.keys(monthlyRevenueByMonth).forEach((month) => {
+        const monthIndex = parseInt(month, 10) - 1;
         if (monthIndex >= 0 && monthIndex < 12) {
-          monthlyData[monthIndex].total = item.total;
+          monthlyData[monthIndex].total = monthlyRevenueByMonth[parseInt(month, 10)];
         }
       });
 
@@ -188,14 +185,9 @@ exports.getSales = async (req, res, next) => {
 
       // Calculate revenue in JavaScript
       const dailySalesWithRevenue = dailySales.map(item => {
-        let durationHours = 0;
-        if (item.startTime && item.endTime) {
-          const [startH, startM] = item.startTime.split(':').map(Number);
-          const [endH, endM] = item.endTime.split(':').map(Number);
-          durationHours = (endH + (endM / 60)) - (startH + (startM / 60));
-          if (durationHours < 0) durationHours += 24;
-        }
-        const revenue = (item.coworkingInfo.price_per_hour || 0) * durationHours;
+        const durationHours = calculateDurationHours(item.startTime, item.endTime);
+        const rawRevenue = (item.coworkingInfo.price_per_hour || 0) * durationHours;
+        const revenue = Number.isFinite(rawRevenue) && rawRevenue > 0 ? rawRevenue : 0;
         return {
           day: { $dayOfMonth: '$date' },
           total: revenue,
