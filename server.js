@@ -65,8 +65,7 @@ const swaggerOptions = {
     },
     servers: [
       {
-        // แก้ไข: ใช้ Environment Variable หรือ detect URL จาก request
-        url: process.env.API_URL || (process.env.NODE_ENV === 'production' ? 'https://backend-august-pen-gay.onrender.com/api/v1' : 'http://localhost:5000/api/v1')
+        url: 'https://backend-august-pen-gay.onrender.com/api/v1'
       }
     ],
     // สิ่งที่เพิ่มเข้ามาเพื่อให้มีปุ่ม Authorize (ใส่ Token)
