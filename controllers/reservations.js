@@ -272,23 +272,49 @@ exports.deleteAllReservations = async (req, res, next) => {
 //@access   Private/Admin
 exports.getDashboardStats = async (req, res, next) => {
   try {
+    const calculateTrend = (currentValue, previousValue) => {
+      if (previousValue === 0) {
+        if (currentValue === 0) return 0;
+        return 100;
+      }
+      return ((currentValue - previousValue) / Math.abs(previousValue)) * 100;
+    };
+
     // 🟢 รับค่า ปี จาก Frontend (ถ้าไม่ส่งมาจะใช้ปีปัจจุบัน)
     const year = req.query.year ? parseInt(req.query.year) : new Date().getFullYear();
+    const now = new Date();
 
     // 1. หาจำนวนสมาชิกทั้งหมด
     const membersCount = await User.countDocuments({ role: 'user' });
+    const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const membersLastMonth = await User.countDocuments({
+      role: 'user',
+      createdAt: { $lt: startOfCurrentMonth }
+    });
+    const membersPrevMonth = await User.countDocuments({
+      role: 'user',
+      createdAt: { $lt: startOfPreviousMonth }
+    });
 
     // 2. หาจำนวนการจองของ "วันนี้"
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
+    const startOfYesterday = new Date(startOfDay);
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+    const endOfYesterday = new Date(startOfDay);
+    endOfYesterday.setMilliseconds(-1);
 
     // 🟢 ดึงข้อมูลการจองทั้งหมดที่มีคิวในวันนี้
     const reservationsToday = await Reservation.find({
       date: { $gte: startOfDay, $lte: endOfDay }
     });
     const bookingsTodayCount = reservationsToday.length; // จำนวน transaction การจองวันนี้
+    const bookingsYesterdayCount = await Reservation.countDocuments({
+      date: { $gte: startOfYesterday, $lte: endOfYesterday }
+    });
 
     // 🟢 คำนวณหาจำนวน "พื้นที่ (โต๊ะ/ห้อง)" ที่โดนจองไปแล้วในวันนี้ (นับแบบไม่ซ้ำกัน)
     const bookedUnits = new Set(reservationsToday.map(r => `${r.coworking}_${r.desk}`));
@@ -326,6 +352,9 @@ exports.getDashboardStats = async (req, res, next) => {
     });
 
     const monthlyRevenue = Object.values(monthlyRevenueMap);
+    const selectedMonth = now.getFullYear() === year ? now.getMonth() : 11;
+    const currentMonthRevenue = monthlyRevenueMap[selectedMonth]?.total || 0;
+    const previousMonthRevenue = monthlyRevenueMap[selectedMonth - 1]?.total || 0;
 
     // 🟢 4. อัตราการเข้าใช้งาน (Occupancy) แบบรายวัน
     const Coworking = require('../models/Coworking'); // ให้ชัวร์ว่ามีการเรียกใช้ Model
@@ -338,6 +367,13 @@ exports.getDashboardStats = async (req, res, next) => {
     if (totalCapacity > 0) {
       occupancy = Math.min(Math.round((bookedUnitsTodayCount / totalCapacity) * 100), 100);
     }
+    const reservationsYesterday = await Reservation.find({
+      date: { $gte: startOfYesterday, $lte: endOfYesterday }
+    });
+    const bookedUnitsYesterday = new Set(reservationsYesterday.map(r => `${r.coworking}_${r.desk}`));
+    const occupancyYesterday = totalCapacity > 0
+      ? Math.min(Math.round((bookedUnitsYesterday.size / totalCapacity) * 100), 100)
+      : 0;
 
     // 5. ดึงรายการธุรกรรมล่าสุด 5 รายการ
     const recentReservations = await Reservation.find()
@@ -386,6 +422,12 @@ exports.getDashboardStats = async (req, res, next) => {
         bookingsToday: bookingsTodayCount, // จำนวนการจองทั้งหมดวันนี้
         bookedSpacesToday: bookedUnitsTodayCount, // จำนวนพื้นที่(โต๊ะ) ที่โดนจองแล้ววันนี้
         occupancy: occupancy, // % อัตราการใช้พื้นที่ของวันนี้
+        trends: {
+          revenue: calculateTrend(currentMonthRevenue, previousMonthRevenue),
+          members: calculateTrend(membersLastMonth, membersPrevMonth),
+          bookingsToday: calculateTrend(bookingsTodayCount, bookingsYesterdayCount),
+          occupancy: calculateTrend(occupancy, occupancyYesterday)
+        },
         recentTransactions: recentTransactions,
         monthlyRevenue: monthlyRevenue 
       }
